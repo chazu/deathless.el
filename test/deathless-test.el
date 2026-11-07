@@ -185,6 +185,51 @@ OVERRIDES is a plist of top-level keys."
             (should (eq (deathless--buffer-at-point) shell)))
         (kill-buffer view)))))
 
+(defun deathless-test--render-text ()
+  "Render the dashboard into a scratch buffer and return its text."
+  (let ((view (generate-new-buffer " *deathless-test*")))
+    (unwind-protect
+        (with-current-buffer view
+          (deathless-mode)
+          (vui-render (vui-component 'deathless-view) view)
+          (vui-flush-sync)
+          (buffer-substring-no-properties (point-min) (point-max)))
+      (kill-buffer view))))
+
+(ert-deftest deathless-test-compact ()
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--emit shell 'input-submitted)
+    (deathless-test--emit shell 'tool-call-update
+                          :tool-call '((:title . "Run npm test")))
+    (let* ((deathless-compact t)
+           (text (deathless-test--render-text))
+           (lines (split-string text "\n" t)))
+      ;; Heading, rule, and one line for the working card: no meta line,
+      ;; no buttons, no footer.
+      (should (= (length lines) 3))
+      (should (string-match-p "WORKING +Refactor auth middleware +↳ Run npm test" text))
+      (should-not (string-match-p "Opus 5.5\\| Open \\|help" text)))
+    ;; A pending permission opens the card up.
+    (with-current-buffer shell
+      (setf (alist-get :tool-calls agent-shell--state)
+            (list (cons "t1" (list (cons :title "Edit src/auth.ts")
+                                   (cons :permission-request-id 7)
+                                   (cons :permission-actions
+                                         (list '((:option . "Allow") (:kind . "allow_once")
+                                                 (:option-id . "allow")))))))))
+    (deathless-test--emit shell 'permission-request :tool-call-id "t1")
+    (let* ((deathless-compact t)
+           (text (deathless-test--render-text)))
+      (should (string-match-p "NEEDS YOU" text))
+      (should (string-match-p "Edit src/auth.ts" text))
+      (should (string-match-p " Allow " text)))))
+
+(ert-deftest deathless-test-compact-auto-without-window ()
+  ;; With no window to measure, auto keeps the full cards.
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (let ((deathless-compact 'auto))
+      (should (string-match-p "Opus 5.5" (deathless-test--render-text))))))
+
 (ert-deftest deathless-test-render-empty ()
   (let ((deathless-store--sessions (make-hash-table :test #'eq))
         (view (generate-new-buffer " *deathless-test*")))

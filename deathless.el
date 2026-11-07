@@ -28,7 +28,11 @@
 ;;
 ;; Keys on a card: RET open, a allow, A always allow, r reject,
 ;; i interrupt, k kill, R restart.  Anywhere: n/p next/previous card,
-;; c new agent, g refresh, q quit, ? help.  Every button is clickable.
+;; N next card waiting on you, c new agent, v compact/full, g refresh,
+;; q quit, ? help.  Every button is clickable.
+;;
+;; In a short window the cards go compact: one line each, opening up
+;; only for a pending permission or a failure.  See `deathless-compact'.
 
 ;;; Code:
 
@@ -81,6 +85,17 @@ See `display-buffer' for the format."
 `attention' puts sessions waiting on you first, then working ones."
   :type '(choice (const :tag "Creation order" stable)
                  (const :tag "Needs attention first" attention)))
+
+(defcustom deathless-compact 'auto
+  "Whether cards are drawn on one line each.
+A compact card shows only its status, title, current tool call and
+clock, and opens up only when it needs you: a pending permission
+gets its buttons, a failure its error.  `auto' goes compact when the
+full cards would not fit the window's height.  \\<deathless-mode-map>\
+\\[deathless-toggle-compact] toggles it in the dashboard."
+  :type '(choice (const :tag "Full cards" nil)
+                 (const :tag "Compact" t)
+                 (const :tag "Compact when full cards do not fit" auto)))
 
 (defcustom deathless-confirm-kill t
   "When non-nil, ask before killing a session."
@@ -516,6 +531,70 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
                (deathless-session-permissions session))
        (deathless--render-actions session status))))))
 
+(defun deathless--render-compact-line (session status width)
+  "Return SESSION's one-line card in STATUS, WIDTH wide."
+  (let* ((buffer (deathless-session-buffer session))
+         (pill (deathless--pill status))
+         (right (deathless--clock session))
+         (room (- width (string-width pill) 2 (string-width right)))
+         (title (deathless--fit (or (deathless-session-title session)
+                                    (buffer-name buffer))
+                                (if (eq status 'working) (min room (max 20 (/ room 2))) room)))
+         (tool (plist-get (deathless-session-last-tool session) :title))
+         (activity (if (and (eq status 'working) tool)
+                       (deathless--fit (concat "  ↳ " tool)
+                                       (- room (string-width title)))
+                     "")))
+    (vui-hstack
+     :spacing 0
+     (vui-text pill 'deathless-buffer buffer)
+     (vui-text " ")
+     (vui-button title
+       :on-click (lambda () (deathless--open buffer))
+       :no-decoration t
+       :face 'deathless-title
+       :help-echo "mouse-1: open this session"
+       :key (cons 'title buffer))
+     (vui-text activity :face 'deathless-activity)
+     (vui-text (make-string (max 1 (- width (string-width pill) 1 (string-width title)
+                                      (string-width activity) (string-width right)))
+                            ?\s))
+     (vui-text right :face 'deathless-meta))))
+
+(defun deathless--render-compact-card (session width)
+  "Return SESSION's compact card, WIDTH wide.
+The card is one line unless SESSION is waiting on a permission or failed."
+  (let* ((buffer (deathless-session-buffer session))
+         (status (deathless-session-status session))
+         (inner (- width deathless--pill-width 1)))
+    (vui-region
+     :keymap (deathless--card-map buffer)
+     :key buffer
+     (vui-vstack
+      :indent 1
+      (deathless--render-compact-line session status width)
+      (vui-vstack
+       :indent (1+ deathless--pill-width)
+       (when (eq status 'failed)
+         (deathless--render-activity session status inner))
+       (mapcar (lambda (permission)
+                 (deathless--render-permission session permission inner))
+               (deathless-session-permissions session)))))))
+
+(defun deathless--full-height (sessions)
+  "Return roughly how many lines full cards for SESSIONS take."
+  (+ 6 (seq-reduce (lambda (lines s)
+                     (+ lines 4 (* 2 (length (deathless-session-permissions s)))))
+                   sessions 0)))
+
+(defun deathless--compact-p (sessions)
+  "Return non-nil when SESSIONS should be drawn as compact cards."
+  (pcase deathless-compact
+    ('auto (let ((window (get-buffer-window (current-buffer) t)))
+             (and window (> (deathless--full-height sessions)
+                            (window-body-height window)))))
+    (value value)))
+
 (defun deathless--summary (sessions)
   "Return the header's status counts for SESSIONS as a string."
   (let ((counts (seq-group-by #'deathless-session-status sessions)))
@@ -547,28 +626,36 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
   "Return the whole dashboard."
   (let* ((width (deathless--width))
          (sessions (deathless--ordered-sessions))
+         (compact (deathless--compact-p sessions))
          (rule (propertize (make-string (+ 1 width) ?─) 'face 'deathless-rule)))
     (vui-vstack
      (vui-text (deathless--spread (propertize " deathless" 'face 'deathless-heading)
                                   (deathless--summary sessions)
                                   (1+ width)))
      (vui-text rule)
-     (vui-newline)
-     (if sessions
-         (apply #'vui-vstack
-                :spacing 1
-                (mapcar (lambda (session) (deathless--render-card session width))
-                        sessions))
-       (deathless--render-empty))
-     (vui-newline)
-     (vui-text rule)
-     (vui-text (deathless--fit
-                (concat " " (substitute-command-keys
-                             "\\<deathless-mode-map>RET open · a/r allow/reject · \
+     (unless compact (vui-newline))
+     (cond ((null sessions) (deathless--render-empty))
+           (compact
+            (apply #'vui-vstack
+                   (mapcar (lambda (session) (deathless--render-compact-card session width))
+                           sessions)))
+           (t
+            (apply #'vui-vstack
+                   :spacing 1
+                   (mapcar (lambda (session) (deathless--render-card session width))
+                           sessions))))
+     ;; The key hints cost three lines a compact view cannot spare; ? has them.
+     (unless compact
+       (vui-vstack
+        (vui-newline)
+        (vui-text rule)
+        (vui-text (deathless--fit
+                   (concat " " (substitute-command-keys
+                                "\\<deathless-mode-map>RET open · a/r allow/reject · \
 i interrupt · \\[deathless-next-attention] next waiting · \\[deathless-new] new · \
-\\[deathless-help] help"))
-                (1+ width))
-       :face 'deathless-meta))))
+\\[deathless-toggle-compact] compact · \\[deathless-help] help"))
+                   (1+ width))
+          :face 'deathless-meta))))))
 
 (defun deathless--ticking-p ()
   "Return non-nil when some card shows a clock that runs."
@@ -663,6 +750,16 @@ i interrupt · \\[deathless-next-attention] next waiting · \\[deathless-new] ne
   (interactive)
   (deathless-store-refresh))
 
+(defun deathless-toggle-compact ()
+  "Switch this dashboard between compact and full cards.
+The choice holds for this buffer; `deathless-compact' sets the default."
+  (interactive)
+  (setq-local deathless-compact
+              (not (deathless--compact-p (deathless-store-sessions))))
+  (when-let* ((root (vui-get-instance (current-buffer))))
+    (vui-rerender root))
+  (message "deathless: %s cards" (if deathless-compact "compact" "full")))
+
 (defun deathless-help ()
   "Describe the dashboard's keys."
   (interactive)
@@ -675,6 +772,7 @@ i interrupt · \\[deathless-next-attention] next waiting · \\[deathless-new] ne
   "N" #'deathless-next-attention
   "c" #'deathless-new
   "g" #'deathless-refresh
+  "v" #'deathless-toggle-compact
   "q" #'quit-window
   "?" #'deathless-help)
 
