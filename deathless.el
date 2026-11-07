@@ -104,10 +104,6 @@ would not fit the window's height.  \\<deathless-mode-map>\
 
 ;;;; Faces
 
-(defface deathless-heading
-  '((t :inherit bold :height 1.25))
-  "Face for the dashboard title.")
-
 (defface deathless-title
   '((t :inherit bold))
   "Face for a session's title.")
@@ -279,12 +275,6 @@ would not fit the window's height.  \\<deathless-mode-map>\
 (defun deathless--fit (string width)
   "Truncate STRING to WIDTH columns, with an ellipsis when cut."
   (truncate-string-to-width (or string "") (max 0 width) nil nil "…"))
-
-(defun deathless--spread (left right width)
-  "Return LEFT and RIGHT joined by enough spaces to fill WIDTH."
-  (concat left
-          (make-string (max 1 (- width (string-width left) (string-width right))) ?\s)
-          right))
 
 ;;;; Ordering
 
@@ -596,25 +586,6 @@ The card is one line unless SESSION is waiting on a permission or failed."
                             (window-body-height window)))))
     (value value)))
 
-(defun deathless--summary (sessions)
-  "Return the header's status counts for SESSIONS as a string."
-  (let ((counts (seq-group-by #'deathless-session-status sessions)))
-    (string-join
-     (delq nil
-           (mapcar (lambda (entry)
-                     (pcase-let ((`(,statuses ,label ,face) entry))
-                       (let ((n (seq-reduce (lambda (sum status)
-                                              (+ sum (length (alist-get status counts))))
-                                            statuses 0)))
-                         (when (> n 0)
-                           (propertize (format "%d %s" n label) 'face face)))))
-                   '(((blocked) "need you" deathless-status-blocked)
-                     ((failed) "failed" deathless-status-failed)
-                     ((done) "done" deathless-status-done)
-                     ((working) "working" deathless-status-working)
-                     ((ready stopped starting exited) "idle" deathless-meta))))
-     (propertize " · " 'face 'deathless-meta))))
-
 (defun deathless--render-empty ()
   "Return the view shown when no sessions exist."
   (vui-vstack
@@ -630,11 +601,6 @@ The card is one line unless SESSION is waiting on a permission or failed."
          (compact (deathless--compact-p sessions))
          (rule (propertize (make-string (+ 1 width) ?─) 'face 'deathless-rule)))
     (vui-vstack
-     (vui-text (deathless--spread (propertize " deathless" 'face 'deathless-heading)
-                                  (deathless--summary sessions)
-                                  (1+ width)))
-     (vui-text rule)
-     (unless compact (vui-newline))
      (cond ((null sessions) (deathless--render-empty))
            (compact
             (apply #'vui-vstack

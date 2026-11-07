@@ -4,9 +4,6 @@ A live dashboard for your [agent-shell](https://github.com/xenodium/agent-shell)
 sessions, built with [vui.el](https://github.com/d12frosted/vui.el).
 
 ```
- deathless                             1 need you · 1 done · 1 working · 1 idle
-───────────────────────────────────────────────────────────────────────────────
-
   ◆ NEEDS YOU  Refactor auth middleware                              Claude  0s
                ~/dev/foo · Opus 5.5 · ctx 45.2k/200.0k (23%) · $0.42
                ▌ ⚠ edit: Edit src/auth/middleware.ts
@@ -84,8 +81,6 @@ A card opens up only when it needs you. A pending permission shows its buttons,
 and a failure shows its error:
 
 ```
- deathless                             1 need you · 1 done · 1 working · 1 idle
-───────────────────────────────────────────────────────────────────────────────
   ◆ NEEDS YOU  Refactor auth middleware                                      0s
                ▌ ⚠ edit: Edit src/auth/middleware.ts
                ▌  Allow   Always Allow   Reject   Show

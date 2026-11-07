@@ -175,7 +175,6 @@ OVERRIDES is a plist of top-level keys."
               (should (string-match-p "Refactor auth middleware" text))
               (should (string-match-p "edit: Edit src/auth.ts" text))
               (should (string-match-p " Allow " text))
-              (should (string-match-p "1 need you" text))
               (should (string-match-p "Opus 5.5" text)))
             ;; The card is findable from anywhere on it.
             (goto-char (point-min))
@@ -205,9 +204,9 @@ OVERRIDES is a plist of top-level keys."
     (let* ((deathless-compact t)
            (text (deathless-test--render-text))
            (lines (split-string text "\n" t)))
-      ;; Heading, rule, and one line for the working card: no meta line,
-      ;; no buttons, no footer.
-      (should (= (length lines) 3))
+      ;; One line for the working card: no header, meta line, buttons or
+      ;; footer.
+      (should (= (length lines) 1))
       (should (string-match-p "WORKING +Refactor auth middleware +↳ Run npm test" text))
       (should-not (string-match-p "Opus 5.5\\| Open \\|help" text)))
     ;; A pending permission opens the card up.
