@@ -241,5 +241,26 @@ OVERRIDES is a plist of top-level keys."
           (should (string-match-p "No agent sessions yet" (buffer-string))))
       (kill-buffer view))))
 
+(ert-deftest deathless-test-new-starts-in-directory ()
+  ;; The shell starts with `default-directory' set to the chosen one.
+  (let* ((dir (make-temp-file "deathless-new-" t))
+         seen)
+    (unwind-protect
+        (cl-letf (((symbol-function 'agent-shell-new-shell)
+                   (lambda () (setq seen default-directory))))
+          (deathless-new dir)
+          (should (equal seen (file-name-as-directory dir))))
+      (delete-directory dir))))
+
+(ert-deftest deathless-test-new-directory-default ()
+  ;; The prompt offers the directory of the session at point.
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (with-current-buffer shell (setq default-directory "/tmp/proj/"))
+    (cl-letf (((symbol-function 'deathless--buffer-at-point) (lambda () shell)))
+      (should (equal (deathless--new-directory-default) "/tmp/proj/")))
+    (let ((default-directory "/tmp/other/"))
+      (cl-letf (((symbol-function 'deathless--buffer-at-point) #'ignore))
+        (should (equal (deathless--new-directory-default) "/tmp/other/"))))))
+
 (provide 'deathless-test)
 ;;; deathless-test.el ends here

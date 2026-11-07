@@ -67,7 +67,7 @@ Run `M-x deathless`. It opens the dashboard in a side window and starts
 | `n` / `p` | next / previous card                     |
 | `N`       | next card waiting on you (wraps around)  |
 | `TAB`     | next button                              |
-| `c`       | new agent                                |
+| `c`       | new agent (prompts for a directory)      |
 | `v`       | switch between compact and full cards    |
 | `g`       | re-read every session                    |
 | `q`       | quit                                     |

@@ -592,7 +592,8 @@ The card is one line unless SESSION is waiting on a permission or failed."
    :indent 1
    (vui-text "No agent sessions yet." :face 'deathless-meta)
    (vui-newline)
-   (deathless--button "+ New agent" #'deathless-new)))
+   (deathless--button "+ New agent"
+                      (lambda () (call-interactively #'deathless-new)))))
 
 (defun deathless--render-root ()
   "Return the whole dashboard."
@@ -707,10 +708,26 @@ i interrupt · \\[deathless-next-attention] next waiting · \\[deathless-new] ne
                            target)))
       (message "Nothing needs you"))))
 
-(defun deathless-new ()
-  "Start a new agent-shell session."
-  (interactive)
-  (agent-shell-new-shell))
+(defun deathless--new-directory-default ()
+  "Return the directory to offer when starting a new session.
+That is the directory of the session at point, if any, else
+`default-directory'."
+  (let ((buffer (deathless--buffer-at-point)))
+    (file-name-as-directory
+     (if (buffer-live-p buffer)
+         (buffer-local-value 'default-directory buffer)
+       default-directory))))
+
+(defun deathless-new (directory)
+  "Start a new agent-shell session in DIRECTORY.
+Interactively, prompt for it, offering the directory of the session
+at point.  agent-shell may widen DIRECTORY to its project root."
+  (interactive
+   (list (read-directory-name "Start agent in: "
+                              (deathless--new-directory-default) nil t)))
+  (let ((default-directory (file-name-as-directory
+                            (expand-file-name directory))))
+    (agent-shell-new-shell)))
 
 (defun deathless-refresh ()
   "Re-read every session from its shell."
