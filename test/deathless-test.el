@@ -11,6 +11,7 @@
 (require 'deathless)
 
 (defvar-local agent-shell--state nil)
+(defvar agent-shell-cwd-function nil)
 
 (defun deathless-test--state (&rest overrides)
   "Return a fake agent-shell state alist, with OVERRIDES applied.
@@ -243,13 +244,28 @@ OVERRIDES is a plist of top-level keys."
 
 (ert-deftest deathless-test-new-starts-in-directory ()
   ;; The shell starts with `default-directory' set to the chosen one.
-  (let* ((dir (make-temp-file "deathless-new-" t))
+  ;; The shell starts in the chosen directory, and the new shell keeps
+  ;; it as its working directory rather than a wider project root.
+  (let* ((dir (file-name-as-directory (make-temp-file "deathless-new-" t)))
+         (old (generate-new-buffer " *old-shell*"))
+         (new (generate-new-buffer " *new-shell*"))
+         (shells (list old))
+         (agent-shell-cwd-function nil)
          seen)
     (unwind-protect
-        (cl-letf (((symbol-function 'agent-shell-new-shell)
-                   (lambda () (setq seen default-directory))))
+        (cl-letf (((symbol-function 'agent-shell-buffers) (lambda () shells))
+                  ((symbol-function 'agent-shell-new-shell)
+                   (lambda ()
+                     (setq seen (list default-directory
+                                      (funcall agent-shell-cwd-function)))
+                     (push new shells))))
           (deathless-new dir)
-          (should (equal seen (file-name-as-directory dir))))
+          (should (equal seen (list dir dir)))
+          (should (equal (funcall (buffer-local-value 'agent-shell-cwd-function new))
+                         dir))
+          (should-not (local-variable-p 'agent-shell-cwd-function old)))
+      (kill-buffer old)
+      (kill-buffer new)
       (delete-directory dir))))
 
 (ert-deftest deathless-test-new-directory-default ()

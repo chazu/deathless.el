@@ -44,12 +44,14 @@
 (require 'deathless-store)
 
 (declare-function agent-shell-new-shell "agent-shell")
+(declare-function agent-shell-buffers "agent-shell")
 (declare-function agent-shell-interrupt "agent-shell")
 (declare-function agent-shell-restart "agent-shell")
 (declare-function agent-shell-set-session-model "agent-shell")
 (declare-function agent-shell-set-session-mode "agent-shell")
 (declare-function agent-shell-view-traffic "agent-shell")
 (declare-function agent-shell-jump-to-latest-permission-button-row "agent-shell")
+(defvar agent-shell-cwd-function)
 
 ;;;; Customization
 
@@ -721,16 +723,30 @@ That is the directory of the session at point, if any, else
 (defun deathless-new (directory)
   "Start a new agent-shell session in DIRECTORY.
 Interactively, prompt for it, offering the directory of the session
-at point.  agent-shell may widen DIRECTORY to its project root."
+at point.
+
+The agent works in DIRECTORY itself.  Left alone, agent-shell would
+widen it to the enclosing project root, which for a directory under a
+home that holds a project marker (say a Makefile) is the home
+directory."
   (interactive
    ;; Read from the minibuffer even when a mouse click on the button
    ;; brought us here, which would otherwise open the system dialog.
    (let ((use-file-dialog nil))
      (list (read-directory-name "Start agent in: "
                                 (deathless--new-directory-default) nil t))))
-  (let ((default-directory (file-name-as-directory
-                            (expand-file-name directory))))
-    (agent-shell-new-shell)))
+  (let* ((directory (file-name-as-directory (expand-file-name directory)))
+         (cwd (lambda () directory))
+         (existing (agent-shell-buffers))
+         (default-directory directory)
+         (agent-shell-cwd-function cwd))
+    (agent-shell-new-shell)
+    ;; The session itself is created later, from the new shell buffer,
+    ;; so the directory has to stay with that buffer.
+    (dolist (buffer (agent-shell-buffers))
+      (unless (memq buffer existing)
+        (with-current-buffer buffer
+          (setq-local agent-shell-cwd-function cwd))))))
 
 (defun deathless-refresh ()
   "Re-read every session from its shell."
