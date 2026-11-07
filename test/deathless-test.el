@@ -166,10 +166,10 @@ OVERRIDES is a plist of top-level keys."
     (deathless-test--emit shell 'input-submitted)
     (setf (deathless-session-cwd (deathless-store-get shell)) "~/w/proj")
     (let ((deathless-compact nil))
-      (should (string-match-p "Claude  ~/w/proj  [0-9]+s\n"
+      (should (string-match-p "Claude  ~/w/proj +[0-9]+s\n"
                               (deathless-test--render-text))))
     (let ((deathless-compact t))
-      (should (string-match-p "  ~/w/proj  [0-9]+s\n?\\'"
+      (should (string-match-p "  ~/w/proj +[0-9]+s\n?\\'"
                               (deathless-test--render-text))))))
 
 (ert-deftest deathless-test-render ()

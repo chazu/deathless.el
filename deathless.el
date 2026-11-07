@@ -294,10 +294,16 @@ so the title keeps most of the line."
    (seq-remove #'string-empty-p
                (mapcar (lambda (part)
                          (if (consp part)
-                             (deathless--short-dir (cdr part) (max 12 (/ width 4)))
+                             (deathless--short-dir (cdr part) (max 12 (/ width 5)))
                            (or part "")))
                        parts))
    "  "))
+
+(defun deathless--clock-cell (session)
+  "Return SESSION's clock right-aligned in a fixed-width cell.
+The cell is as wide as the widest clock (\"just now\"), so the
+directories just left of it line up from card to card."
+  (string-pad (deathless--clock session) 8 nil t))
 
 (defun deathless--width ()
   "Return the width cards are laid out to in the current buffer."
@@ -444,7 +450,7 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
                  width
                  (deathless-session-agent session)
                  (cons 'dir (deathless-session-cwd session))
-                 (deathless--clock session)))
+                 (deathless--clock-cell session)))
          (room (- width (string-width pill) 2 (string-width right)))
          (title (deathless--fit (or (deathless-session-title session)
                                     (buffer-name buffer))
@@ -564,7 +570,7 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
          (right (deathless--right-column
                  width
                  (cons 'dir (deathless-session-cwd session))
-                 (deathless--clock session)))
+                 (deathless--clock-cell session)))
          (room (- width (string-width pill) 2 (string-width right)))
          (tool (plist-get (deathless-session-last-tool session) :title))
          (activity (if (and (eq status 'working) tool) (concat "  ↳ " tool) ""))
