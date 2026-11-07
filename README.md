@@ -76,7 +76,8 @@ Every button is also clickable with the mouse.
 
 ## Compact cards
 
-By default each card is one line: status, title, current tool call and clock.
+By default each card is one line: status, title, current tool call,
+directory and clock.
 A card opens up only when it needs you. A pending permission shows its buttons,
 and a failure shows its error:
 

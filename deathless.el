@@ -268,6 +268,37 @@ would not fit the window's height.  \\<deathless-mode-map>\
           (end (deathless--ago end))
           (t ""))))
 
+(defun deathless--short-dir (dir width)
+  "Return DIR cut down to WIDTH columns, dropping leading components.
+A shortened DIR starts with an ellipsis, so ~/dev/birnam/birnam can
+become …/birnam/birnam."
+  (cond ((or (null dir) (< width 1)) "")
+        ((<= (string-width dir) width) dir)
+        (t (let ((parts (reverse (split-string dir "/" t)))
+                 kept)
+             (while (and parts
+                         (<= (+ 2 (string-width (string-join (cons (car parts) kept) "/")))
+                             width))
+               (push (pop parts) kept))
+             (if kept
+                 (concat "…/" (string-join kept "/"))
+               (let ((last (or (car parts) dir)))
+                 (concat "…" (substring last (- (min (length last)
+                                                     (max 0 (1- width))))))))))))
+
+(defun deathless--right-column (width &rest parts)
+  "Join the non-empty PARTS for the right end of a card WIDTH wide.
+A part that is a cons (dir . DIR) is the session directory, shortened
+so the title keeps most of the line."
+  (string-join
+   (seq-remove #'string-empty-p
+               (mapcar (lambda (part)
+                         (if (consp part)
+                             (deathless--short-dir (cdr part) (max 12 (/ width 4)))
+                           (or part "")))
+                       parts))
+   "  "))
+
 (defun deathless--width ()
   "Return the width cards are laid out to in the current buffer."
   (let ((window (get-buffer-window (current-buffer) t)))
@@ -409,8 +440,11 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
   "Return the first line of SESSION's card, in STATUS, WIDTH wide."
   (let* ((buffer (deathless-session-buffer session))
          (pill (deathless--pill status))
-         (right (concat (deathless-session-agent session) "  "
-                        (deathless--clock session)))
+         (right (deathless--right-column
+                 width
+                 (deathless-session-agent session)
+                 (cons 'dir (deathless-session-cwd session))
+                 (deathless--clock session)))
          (room (- width (string-width pill) 2 (string-width right)))
          (title (deathless--fit (or (deathless-session-title session)
                                     (buffer-name buffer))
@@ -434,8 +468,7 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
 
 (defun deathless--render-meta-line (session width)
   "Return SESSION's details line, at most WIDTH wide."
-  (let ((parts (delq nil (list (deathless-session-cwd session)
-                               (deathless-session-model session)
+  (let ((parts (delq nil (list (deathless-session-model session)
                                (deathless-session-mode session)
                                (deathless--usage-text (deathless-session-usage session))))))
     (vui-text (deathless--fit (string-join (seq-remove #'string-empty-p parts) " · ")
@@ -528,16 +561,22 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
   "Return SESSION's one-line card in STATUS, WIDTH wide."
   (let* ((buffer (deathless-session-buffer session))
          (pill (deathless--pill status))
-         (right (deathless--clock session))
+         (right (deathless--right-column
+                 width
+                 (cons 'dir (deathless-session-cwd session))
+                 (deathless--clock session)))
          (room (- width (string-width pill) 2 (string-width right)))
+         (tool (plist-get (deathless-session-last-tool session) :title))
+         (activity (if (and (eq status 'working) tool) (concat "  ↳ " tool) ""))
+         ;; A working card shares the line with its tool: the title gets
+         ;; what the tool does not need, and at least half when both are long.
          (title (deathless--fit (or (deathless-session-title session)
                                     (buffer-name buffer))
-                                (if (eq status 'working) (min room (max 20 (/ room 2))) room)))
-         (tool (plist-get (deathless-session-last-tool session) :title))
-         (activity (if (and (eq status 'working) tool)
-                       (deathless--fit (concat "  ↳ " tool)
-                                       (- room (string-width title)))
-                     "")))
+                                (if (string-empty-p activity)
+                                    room
+                                  (min room (max 20 (/ room 2)
+                                                 (- room (string-width activity)))))))
+         (activity (deathless--fit activity (- room (string-width title)))))
     (vui-hstack
      :spacing 0
      (vui-text pill 'deathless-buffer buffer)

@@ -152,6 +152,26 @@ OVERRIDES is a plist of top-level keys."
                                           (:cost-amount . 0.42)))
                  "ctx 45.2k/200.0k (23%) · $0.42")))
 
+(ert-deftest deathless-test-short-dir ()
+  (should (equal (deathless--short-dir "~/dev/x" 20) "~/dev/x"))
+  (should (equal (deathless--short-dir "~/dev/birnam/birnam" 16) "…/birnam/birnam"))
+  (should (equal (deathless--short-dir "~/dev/birnam/birnam" 10) "…/birnam"))
+  (should (equal (deathless--short-dir "~/dev/averyverylongname" 8) "…ongname"))
+  (should (equal (deathless--short-dir nil 10) ""))
+  (should (equal (deathless--right-column 80 "Claude" '(dir . "~/w/p") "") "Claude  ~/w/p")))
+
+(ert-deftest deathless-test-render-dir ()
+  ;; The directory sits just left of the time, in full and compact cards.
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--emit shell 'input-submitted)
+    (setf (deathless-session-cwd (deathless-store-get shell)) "~/w/proj")
+    (let ((deathless-compact nil))
+      (should (string-match-p "Claude  ~/w/proj  [0-9]+s\n"
+                              (deathless-test--render-text))))
+    (let ((deathless-compact t))
+      (should (string-match-p "  ~/w/proj  [0-9]+s\n?\\'"
+                              (deathless-test--render-text))))))
+
 (ert-deftest deathless-test-render ()
   (deathless-test--with-shell (shell (deathless-test--state))
     (deathless-test--emit shell 'input-submitted)
