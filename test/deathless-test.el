@@ -163,7 +163,8 @@ OVERRIDES is a plist of top-level keys."
                                          (list '((:option . "Allow") (:kind . "allow_once")
                                                  (:option-id . "allow")))))))))
     (deathless-test--emit shell 'permission-request :tool-call-id "t1")
-    (let ((view (generate-new-buffer " *deathless-test*")))
+    (let ((view (generate-new-buffer " *deathless-test*"))
+          (deathless-compact nil))
       (unwind-protect
           (with-current-buffer view
             (deathless-mode)

@@ -31,8 +31,8 @@
 ;; N next card waiting on you, c new agent, v compact/full, g refresh,
 ;; q quit, ? help.  Every button is clickable.
 ;;
-;; In a short window the cards go compact: one line each, opening up
-;; only for a pending permission or a failure.  See `deathless-compact'.
+;; Cards are compact by default: one line each, opening up only for a
+;; pending permission or a failure.  See `deathless-compact'.
 
 ;;; Code:
 
@@ -86,12 +86,13 @@ See `display-buffer' for the format."
   :type '(choice (const :tag "Creation order" stable)
                  (const :tag "Needs attention first" attention)))
 
-(defcustom deathless-compact 'auto
+(defcustom deathless-compact t
   "Whether cards are drawn on one line each.
 A compact card shows only its status, title, current tool call and
 clock, and opens up only when it needs you: a pending permission
-gets its buttons, a failure its error.  `auto' goes compact when the
-full cards would not fit the window's height.  \\<deathless-mode-map>\
+gets its buttons, a failure its error.  nil draws full cards, with
+details and buttons.  `auto' goes compact only when the full cards
+would not fit the window's height.  \\<deathless-mode-map>\
 \\[deathless-toggle-compact] toggles it in the dashboard."
   :type '(choice (const :tag "Full cards" nil)
                  (const :tag "Compact" t)

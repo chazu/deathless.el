@@ -79,10 +79,9 @@ Every button is also clickable with the mouse.
 
 ## Compact cards
 
-In a short window, such as a strip along the bottom of the frame, each card
-shrinks to one line: status, title, current tool call and clock. A card opens up
-only when it needs you. A pending permission shows its buttons, and a failure
-shows its error:
+By default each card is one line: status, title, current tool call and clock.
+A card opens up only when it needs you. A pending permission shows its buttons,
+and a failure shows its error:
 
 ```
  deathless                             1 need you · 1 done · 1 working · 1 idle
@@ -94,9 +93,9 @@ shows its error:
   ● DONE       Refactor auth middleware                                 12m ago
 ```
 
-`deathless-compact` is `auto` by default: cards go compact when the full ones
-would not fit the window's height. Set it to `t` or `nil` to fix the choice, or
-press `v` to switch in the dashboard.
+Set `deathless-compact` to `nil` for full cards, with details and buttons, or to
+`auto` to go compact only when the full cards would not fit the window. Press
+`v` to switch in the dashboard.
 
 ## Statuses
 
@@ -118,7 +117,7 @@ press `v` to switch in the dashboard.
 | `deathless-display-buffer-action` | right side window | where the dashboard appears              |
 | `deathless-open-action`           | `pop-to-buffer` | how a session is opened                    |
 | `deathless-order`                 | `stable`       | `attention` puts waiting sessions first     |
-| `deathless-compact`               | `auto`         | one-line cards: `t`, `nil` or `auto`        |
+| `deathless-compact`               | `t`            | one-line cards: `t`, `nil` or `auto`        |
 | `deathless-max-width`             | 100            | widest a card grows                         |
 | `deathless-confirm-kill`          | `t`            | ask before killing a session                |
 
