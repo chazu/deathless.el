@@ -723,8 +723,11 @@ That is the directory of the session at point, if any, else
 Interactively, prompt for it, offering the directory of the session
 at point.  agent-shell may widen DIRECTORY to its project root."
   (interactive
-   (list (read-directory-name "Start agent in: "
-                              (deathless--new-directory-default) nil t)))
+   ;; Read from the minibuffer even when a mouse click on the button
+   ;; brought us here, which would otherwise open the system dialog.
+   (let ((use-file-dialog nil))
+     (list (read-directory-name "Start agent in: "
+                                (deathless--new-directory-default) nil t))))
   (let ((default-directory (file-name-as-directory
                             (expand-file-name directory))))
     (agent-shell-new-shell)))
