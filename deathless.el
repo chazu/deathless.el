@@ -33,6 +33,11 @@
 ;;
 ;; Cards are compact by default: one line each, opening up only for a
 ;; pending permission or a failure.  See `deathless-compact'.
+;;
+;; A card's first line shows the status, the project and the title on
+;; the left, and the clock on the right.  `deathless-card-header-format'
+;; and `deathless-card-compact-format' change what goes where, and
+;; `deathless-card-parts' adds parts of your own.
 
 ;;; Code:
 
@@ -90,8 +95,8 @@ See `display-buffer' for the format."
 
 (defcustom deathless-compact t
   "Whether cards are drawn on one line each.
-A compact card shows only its status, title, current tool call and
-clock, and opens up only when it needs you: a pending permission
+A compact card shows only the line `deathless-card-compact-format'
+lays out, and opens up only when it needs you: a pending permission
 gets its buttons, a failure its error.  nil draws full cards, with
 details and buttons.  `auto' goes compact only when the full cards
 would not fit the window's height.  \\<deathless-mode-map>\
@@ -104,11 +109,107 @@ would not fit the window's height.  \\<deathless-mode-map>\
   "When non-nil, ask before killing a session."
   :type 'boolean)
 
+;;;; Card layout
+
+(defconst deathless--card-format-type
+  (let ((part '(choice (const :tag "Status pill" status)
+                       (const :tag "Project name" project)
+                       (const :tag "Title" title)
+                       (const :tag "Current tool call" activity)
+                       (const :tag "Agent name" agent)
+                       (const :tag "Directory" dir)
+                       (const :tag "Clock" clock)
+                       (symbol :tag "Part from `deathless-card-parts'"))))
+    `(list (const :format "" :left) (repeat :tag "Left" ,part)
+           (const :format "" :right) (repeat :tag "Right" ,part)))
+  "Customize type of a card line layout.")
+
+(defcustom deathless-card-header-format
+  '(:left (status project title) :right (agent clock))
+  "Layout of the first line of a full card.
+The value is a plist (:left PARTS :right PARTS).  The :left PARTS
+are drawn in order from the left edge; the :right PARTS end at the
+right edge.  Each part is a key of `deathless-card-parts'.  The
+built-in parts are:
+
+  `status'    the status pill
+  `project'   the project the session works in, see
+              `deathless-project-name'
+  `title'     the session title, a button that opens the session
+  `activity'  the tool call a working session is running
+  `agent'     the agent's name
+  `dir'       the session's directory, shortened
+  `clock'     how long the turn has run, or how long ago it ended
+
+A part that has nothing to show is left out.  The right side keeps
+its full width, and `title' and `activity' share what is left, cut
+to fit.  Other parts keep their width; `project' is cut to
+`deathless-project-max-width'.  When `project' comes before `title',
+it is padded so titles line up from card to card.
+
+For the layout from before project names, use
+  (:left (status title) :right (agent dir clock))"
+  :type deathless--card-format-type)
+
+(defcustom deathless-card-compact-format
+  '(:left (status project title activity) :right (clock))
+  "Layout of a compact card's line.
+The format is that of `deathless-card-header-format'.  For the
+layout from before project names, use
+  (:left (status title activity) :right (dir clock))"
+  :type deathless--card-format-type)
+
+(defconst deathless--default-card-parts
+  '((status   . deathless-part-status)
+    (project  . deathless-part-project)
+    (title    . deathless-part-title)
+    (activity . deathless-part-activity)
+    (agent    . deathless-part-agent)
+    (dir      . deathless-part-dir)
+    (clock    . deathless-part-clock))
+  "The built-in card parts and the functions that draw them.")
+
+(defcustom deathless-card-parts (copy-alist deathless--default-card-parts)
+  "Alist of card parts: PART to a FUNCTION that draws it.
+`deathless-card-header-format' and `deathless-card-compact-format'
+name parts by the keys of this alist.  Add an entry to define a part
+of your own, or change one to draw a built-in part differently.  A
+built-in part missing from this alist keeps its default function.
+
+FUNCTION is called with the session and its status, a symbol such
+as `working' (see `deathless-session-status'), and returns a string
+or nil.  nil, or an empty string, leaves the part out.  The string
+is inserted as it is, so give it a face with `propertize'; a
+`help-echo' property becomes its tooltip.
+
+Only `title' and `activity' are cut to fit the line; keep other
+parts short.  `deathless-card-width' holds the width of the card
+being drawn.  The `title' part is always drawn as a button that
+opens the session.
+
+The first part of a line carries a `deathless-buffer' text property
+holding the session's shell buffer, which is how commands find the
+card at point.  The dashboard adds it; a part function need not."
+  :type '(alist :key-type (symbol :tag "Part") :value-type (function :tag "Function")))
+
+(defcustom deathless-project-max-width 24
+  "Widest a project name on a card may be, in columns.
+A longer name is cut and ends in an ellipsis."
+  :type 'natnum)
+
 ;;;; Faces
 
 (defface deathless-title
   '((t :inherit bold))
   "Face for a session's title.")
+
+(defface deathless-project
+  '((((class color) (min-colors 88) (background dark))
+     :foreground "#bb9af7" :weight bold)
+    (((class color) (min-colors 88) (background light))
+     :foreground "#7340b8" :weight bold)
+    (t :inherit (font-lock-constant-face bold)))
+  "Face for the project a session works in.")
 
 (defface deathless-meta
   '((t :inherit shadow))
@@ -286,19 +387,6 @@ become …/birnam/birnam."
                  (concat "…" (substring last (- (min (length last)
                                                      (max 0 (1- width))))))))))))
 
-(defun deathless--right-column (width &rest parts)
-  "Join the non-empty PARTS for the right end of a card WIDTH wide.
-A part that is a cons (dir . DIR) is the session directory, shortened
-so the title keeps most of the line."
-  (string-join
-   (seq-remove #'string-empty-p
-               (mapcar (lambda (part)
-                         (if (consp part)
-                             (deathless--short-dir (cdr part) (max 12 (/ width 5)))
-                           (or part "")))
-                       parts))
-   "  "))
-
 (defun deathless--clock-cell (session)
   "Return SESSION's clock right-aligned in a fixed-width cell.
 The cell is as wide as the widest clock (\"just now\"), so the
@@ -314,6 +402,216 @@ directories just left of it line up from card to card."
 (defun deathless--fit (string width)
   "Truncate STRING to WIDTH columns, with an ellipsis when cut."
   (truncate-string-to-width (or string "") (max 0 width) nil nil "…"))
+
+;;;; Project names
+
+(defvar rat-kingdom-directory)
+
+(defvar deathless--project-names (make-hash-table :test #'equal)
+  "Project names already worked out, by directory.")
+
+(defun deathless--rat-kingdom-repo (dir)
+  "Return the repository name if DIR is in a rat-kingdom worktree, else nil.
+Such a worktree is <rat-kingdom-directory>/worktrees/<repo>/<id>."
+  (let ((root (and (bound-and-true-p rat-kingdom-directory)
+                   (file-name-as-directory
+                    (expand-file-name "worktrees" rat-kingdom-directory)))))
+    (if (and root (string-prefix-p root dir))
+        (let ((parts (split-string (substring dir (length root)) "/" t)))
+          (and (cdr parts) (car parts)))
+      (when (string-match "/rat-kingdom/worktrees/\\([^/]+\\)/[^/]+" dir)
+        (match-string 1 dir)))))
+
+(defun deathless--git-toplevel (dir)
+  "Return the top directory of the Git work tree DIR is in, or nil."
+  (unless (or (file-remote-p dir)
+              (not (file-directory-p dir))
+              (not (executable-find "git")))
+    (with-temp-buffer
+      (let ((default-directory dir))
+        (when (eql 0 (ignore-errors
+                       (call-process "git" nil '(t nil) nil
+                                     "rev-parse" "--show-toplevel")))
+          (let ((top (string-trim (buffer-string))))
+            (unless (string-empty-p top) top)))))))
+
+(defun deathless-project-name (dir)
+  "Return the name of the project directory DIR belongs to.
+In a rat-kingdom worktree, that is the repository the worktree is
+of.  Otherwise it is the name of the top of DIR's Git work tree, or
+failing that DIR's own name.  The answer is kept per directory, so
+Git runs once for each."
+  (let ((dir (file-name-as-directory (expand-file-name dir))))
+    (or (gethash dir deathless--project-names)
+        (puthash dir
+                 (or (deathless--rat-kingdom-repo dir)
+                     (when-let* ((top (deathless--git-toplevel dir)))
+                       (file-name-nondirectory (directory-file-name top)))
+                     (let ((base (file-name-nondirectory (directory-file-name dir))))
+                       (if (string-empty-p base) dir base)))
+                 deathless--project-names))))
+
+(defalias 'deathless--project-name #'deathless-project-name)
+
+;;;; Card parts
+;;
+;; The parts a card line is built from; see `deathless-card-parts'.
+
+(defvar deathless-card-width 80
+  "Width of the card being drawn, for functions in `deathless-card-parts'.")
+
+(defvar deathless--project-column nil
+  "Width the `project' part is padded to in this render, or nil.")
+
+(defconst deathless--flexible-parts '(title activity)
+  "Parts that are cut to fit a card line.")
+
+(defun deathless-part-status (_session status)
+  "Return the status pill for STATUS."
+  (deathless--pill status))
+
+(defun deathless-part-project (session _status)
+  "Return the project SESSION works in, cut to `deathless-project-max-width'."
+  (when-let* ((cwd (deathless-session-cwd session)))
+    (propertize (deathless--fit (deathless-project-name cwd)
+                                deathless-project-max-width)
+                'face 'deathless-project
+                'help-echo cwd)))
+
+(defun deathless-part-title (session _status)
+  "Return SESSION's title, or its buffer's name when it has none."
+  (propertize (or (deathless-session-title session)
+                  (buffer-name (deathless-session-buffer session)))
+              'face 'deathless-title))
+
+(defun deathless-part-activity (session status)
+  "Return the tool call SESSION runs, if STATUS is `working'."
+  (when-let* (((eq status 'working))
+              (tool (plist-get (deathless-session-last-tool session) :title)))
+    (propertize (concat "↳ " tool) 'face 'deathless-activity)))
+
+(defun deathless-part-agent (session _status)
+  "Return the name of SESSION's agent."
+  (when-let* ((agent (deathless-session-agent session)))
+    (propertize agent 'face 'deathless-meta)))
+
+(defun deathless-part-dir (session _status)
+  "Return SESSION's directory, shortened to suit `deathless-card-width'."
+  (let ((dir (deathless--short-dir (deathless-session-cwd session)
+                                   (max 12 (/ deathless-card-width 5)))))
+    (unless (string-empty-p dir)
+      (propertize dir 'face 'deathless-meta 'help-echo (deathless-session-cwd session)))))
+
+(defun deathless-part-clock (session _status)
+  "Return SESSION's clock, right-aligned in a fixed-width cell."
+  (propertize (deathless--clock-cell session) 'face 'deathless-meta))
+
+(defun deathless--part-string (part session status)
+  "Return PART of SESSION's card in STATUS, or nil when it shows nothing."
+  (when-let* ((function (or (alist-get part deathless-card-parts)
+                            (alist-get part deathless--default-card-parts)))
+              (string (funcall function session status)))
+    (unless (string-empty-p string) string)))
+
+(defun deathless--project-padded-p (format)
+  "Return non-nil when FORMAT puts `project' before `title' on the left."
+  (memq 'title (cdr (memq 'project (plist-get format :left)))))
+
+(defun deathless--project-width (sessions format)
+  "Return the width to pad the `project' part to for SESSIONS in FORMAT.
+That is the widest project name shown, or nil when FORMAT does not
+put `project' before `title'."
+  (when (deathless--project-padded-p format)
+    (min deathless-project-max-width
+         (apply #'max 0 (mapcar (lambda (session)
+                                  (string-width
+                                   (or (deathless--part-string
+                                        'project session
+                                        (deathless-session-status session))
+                                       "")))
+                                sessions)))))
+
+(defun deathless--render-line (session status width format)
+  "Return SESSION's card line in STATUS, WIDTH wide, laid out by FORMAT.
+FORMAT is as `deathless-card-header-format' describes."
+  (let* ((deathless-card-width width)
+         (buffer (deathless-session-buffer session))
+         (pad (and deathless--project-column
+                   (deathless--project-padded-p format)
+                   deathless--project-column))
+         (left (delq nil
+                     (mapcar (lambda (part)
+                               (let ((string (deathless--part-string part session status)))
+                                 ;; A card without a project keeps the column.
+                                 (when (and (eq part 'project) pad (null string))
+                                   (setq string (make-string pad ?\s)))
+                                 (when string (cons part string))))
+                             (plist-get format :left))))
+         (right (string-join (delq nil (mapcar (lambda (part)
+                                                 (deathless--part-string part session status))
+                                               (plist-get format :right)))
+                             "  "))
+         ;; Gaps between left parts: one column after the pill, which has
+         ;; its own padding, two elsewhere, and the project column's fill.
+         (gaps (cons "" (seq-mapn (lambda (before _)
+                                    (concat (if (eq (car before) 'status) " " "  ")
+                                            (if (and pad (eq (car before) 'project))
+                                                (make-string (max 0 (- pad (string-width
+                                                                            (cdr before))))
+                                                             ?\s)
+                                              "")))
+                                  left (cdr left))))
+         (fixed (+ (apply #'+ (mapcar #'string-width gaps))
+                   (apply #'+ (mapcar (lambda (item)
+                                        (if (memq (car item) deathless--flexible-parts)
+                                            0
+                                          (string-width (cdr item))))
+                                      left))
+                   (if (string-empty-p right) 0 (1+ (string-width right)))))
+         (room (- width fixed)))
+    ;; Each flexible part gets what those after it do not need, and at
+    ;; least half of what is left when they are long too.
+    (let ((flexible (seq-filter (lambda (item) (memq (car item) deathless--flexible-parts))
+                                left)))
+      (while flexible
+        (let* ((item (pop flexible))
+               (later (apply #'+ (mapcar (lambda (i) (string-width (cdr i))) flexible)))
+               (fit (deathless--fit (cdr item)
+                                    (if flexible
+                                        (min room (max 20 (/ room 2) (- room later)))
+                                      room))))
+          (setcdr item fit)
+          (setq room (- room (string-width fit))))))
+    (let* ((used (+ (apply #'+ (mapcar #'string-width gaps))
+                    (apply #'+ (mapcar (lambda (item) (string-width (cdr item))) left))))
+           ;; Each node is (PART . STRING); a gap's PART is nil.
+           (nodes (seq-remove
+                   (lambda (node) (string-empty-p (cdr node)))
+                   (append
+                    (apply #'append
+                           (seq-mapn (lambda (gap item) (list (cons nil gap) item))
+                                     gaps left))
+                    (unless (string-empty-p right)
+                      (list (cons nil (make-string (max 1 (- width used (string-width right)))
+                                                   ?\s))
+                            (cons 'right right))))))
+           (nodes (or nodes (list (cons nil " ")))))
+      ;; The first part carries the card's buffer, which is how commands
+      ;; that act on "the card at point" find it.
+      (setcdr (car nodes) (propertize (cdar nodes) 'deathless-buffer buffer))
+      (apply #'vui-hstack
+             :spacing 0
+             (mapcar (lambda (node)
+                       (if (eq (car node) 'title)
+                           (vui-button (cdr node)
+                             :on-click (lambda () (deathless--open buffer))
+                             :no-decoration t
+                             :face (or (get-text-property 0 'face (cdr node))
+                                       'deathless-title)
+                             :help-echo "mouse-1: open this session"
+                             :key (cons 'title buffer))
+                         (vui-text (cdr node))))
+                     nodes)))))
 
 ;;;; Ordering
 
@@ -371,7 +669,7 @@ directories just left of it line up from card to card."
 (defun deathless--restart (buffer)
   "Restart the agent in BUFFER with a fresh conversation."
   (deathless--check-live buffer)
-  (when (y-or-n-p (format "Restart %s?  Its conversation will be cleared. "
+  (when (y-or-n-p (format "Restart %s and clear its conversation? "
                           (buffer-name buffer)))
     (with-current-buffer buffer (agent-shell-restart))))
 
@@ -443,34 +741,9 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
     map))
 
 (defun deathless--render-header-line (session status width)
-  "Return the first line of SESSION's card, in STATUS, WIDTH wide."
-  (let* ((buffer (deathless-session-buffer session))
-         (pill (deathless--pill status))
-         (right (deathless--right-column
-                 width
-                 (deathless-session-agent session)
-                 (cons 'dir (deathless-session-cwd session))
-                 (deathless--clock-cell session)))
-         (room (- width (string-width pill) 2 (string-width right)))
-         (title (deathless--fit (or (deathless-session-title session)
-                                    (buffer-name buffer))
-                                room)))
-    (vui-hstack
-     :spacing 0
-     ;; The pill carries the card's buffer, which is how commands that
-     ;; act on "the card at point" find it.
-     (vui-text pill 'deathless-buffer buffer)
-     (vui-text " ")
-     (vui-button title
-       :on-click (lambda () (deathless--open buffer))
-       :no-decoration t
-       :face 'deathless-title
-       :help-echo "mouse-1: open this session"
-       :key (cons 'title buffer))
-     (vui-text (make-string (max 1 (- width (string-width pill) 1
-                                      (string-width title) (string-width right)))
-                            ?\s))
-     (vui-text right :face 'deathless-meta))))
+  "Return the first line of SESSION's card, in STATUS, WIDTH wide.
+`deathless-card-header-format' lays it out."
+  (deathless--render-line session status width deathless-card-header-format))
 
 (defun deathless--render-meta-line (session width)
   "Return SESSION's details line, at most WIDTH wide."
@@ -482,7 +755,8 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
       :face 'deathless-meta)))
 
 (defun deathless--render-activity (session status width)
-  "Return what SESSION in STATUS is doing or why it stopped, or nil."
+  "Return what SESSION in STATUS is doing or why it stopped, or nil.
+The line is cut to WIDTH columns."
   (let ((tool (deathless-session-last-tool session)))
     (pcase status
       ('working
@@ -564,40 +838,9 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
        (deathless--render-actions session status))))))
 
 (defun deathless--render-compact-line (session status width)
-  "Return SESSION's one-line card in STATUS, WIDTH wide."
-  (let* ((buffer (deathless-session-buffer session))
-         (pill (deathless--pill status))
-         (right (deathless--right-column
-                 width
-                 (cons 'dir (deathless-session-cwd session))
-                 (deathless--clock-cell session)))
-         (room (- width (string-width pill) 2 (string-width right)))
-         (tool (plist-get (deathless-session-last-tool session) :title))
-         (activity (if (and (eq status 'working) tool) (concat "  ↳ " tool) ""))
-         ;; A working card shares the line with its tool: the title gets
-         ;; what the tool does not need, and at least half when both are long.
-         (title (deathless--fit (or (deathless-session-title session)
-                                    (buffer-name buffer))
-                                (if (string-empty-p activity)
-                                    room
-                                  (min room (max 20 (/ room 2)
-                                                 (- room (string-width activity)))))))
-         (activity (deathless--fit activity (- room (string-width title)))))
-    (vui-hstack
-     :spacing 0
-     (vui-text pill 'deathless-buffer buffer)
-     (vui-text " ")
-     (vui-button title
-       :on-click (lambda () (deathless--open buffer))
-       :no-decoration t
-       :face 'deathless-title
-       :help-echo "mouse-1: open this session"
-       :key (cons 'title buffer))
-     (vui-text activity :face 'deathless-activity)
-     (vui-text (make-string (max 1 (- width (string-width pill) 1 (string-width title)
-                                      (string-width activity) (string-width right)))
-                            ?\s))
-     (vui-text right :face 'deathless-meta))))
+  "Return SESSION's one-line card in STATUS, WIDTH wide.
+`deathless-card-compact-format' lays it out."
+  (deathless--render-line session status width deathless-card-compact-format))
 
 (defun deathless--render-compact-card (session width)
   "Return SESSION's compact card, WIDTH wide.
@@ -647,6 +890,10 @@ The card is one line unless SESSION is waiting on a permission or failed."
   (let* ((width (deathless--width))
          (sessions (deathless--ordered-sessions))
          (compact (deathless--compact-p sessions))
+         (deathless--project-column
+          (deathless--project-width sessions (if compact
+                                                  deathless-card-compact-format
+                                                deathless-card-header-format)))
          (rule (propertize (make-string (+ 1 width) ?─) 'face 'deathless-rule)))
     (vui-vstack
      (cond ((null sessions) (deathless--render-empty))

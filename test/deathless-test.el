@@ -157,19 +157,20 @@ OVERRIDES is a plist of top-level keys."
   (should (equal (deathless--short-dir "~/dev/birnam/birnam" 16) "…/birnam/birnam"))
   (should (equal (deathless--short-dir "~/dev/birnam/birnam" 10) "…/birnam"))
   (should (equal (deathless--short-dir "~/dev/averyverylongname" 8) "…ongname"))
-  (should (equal (deathless--short-dir nil 10) ""))
-  (should (equal (deathless--right-column 80 "Claude" '(dir . "~/w/p") "") "Claude  ~/w/p")))
+  (should (equal (deathless--short-dir nil 10) "")))
 
 (ert-deftest deathless-test-render-dir ()
-  ;; The directory sits just left of the time, in full and compact cards.
+  ;; The old layout, with the directory just left of the time, still works.
   (deathless-test--with-shell (shell (deathless-test--state))
     (deathless-test--emit shell 'input-submitted)
     (setf (deathless-session-cwd (deathless-store-get shell)) "~/w/proj")
-    (let ((deathless-compact nil))
-      (should (string-match-p "Claude  ~/w/proj +[0-9]+s\n"
+    (let ((deathless-compact nil)
+          (deathless-card-header-format '(:left (status title) :right (agent dir clock))))
+      (should (string-match-p "WORKING +Refactor auth middleware +Claude  ~/w/proj +[0-9]+s\n"
                               (deathless-test--render-text))))
-    (let ((deathless-compact t))
-      (should (string-match-p "  ~/w/proj +[0-9]+s\n?\\'"
+    (let ((deathless-compact t)
+          (deathless-card-compact-format '(:left (status title activity) :right (dir clock))))
+      (should (string-match-p "WORKING +Refactor auth middleware +~/w/proj +[0-9]+s\n?\\'"
                               (deathless-test--render-text))))))
 
 (ert-deftest deathless-test-render ()
@@ -228,7 +229,7 @@ OVERRIDES is a plist of top-level keys."
       ;; One line for the working card: no header, meta line, buttons or
       ;; footer.
       (should (= (length lines) 1))
-      (should (string-match-p "WORKING +Refactor auth middleware +↳ Run npm test" text))
+      (should (string-match-p "WORKING +[^ ]+ +Refactor auth middleware +↳ Run npm test" text))
       (should-not (string-match-p "Opus 5.5\\| Open \\|help" text)))
     ;; A pending permission opens the card up.
     (with-current-buffer shell
@@ -297,6 +298,157 @@ OVERRIDES is a plist of top-level keys."
     (let ((default-directory "/tmp/other/"))
       (cl-letf (((symbol-function 'deathless--buffer-at-point) #'ignore))
         (should (equal (deathless--new-directory-default) "/tmp/other/"))))))
+
+;;;; Card layout
+
+(defvar rat-kingdom-directory)
+
+(defun deathless-test--working (shell cwd)
+  "Make SHELL's session work in CWD, running a tool."
+  (deathless-test--emit shell 'input-submitted)
+  (deathless-test--emit shell 'tool-call-update :tool-call '((:title . "Run npm test")))
+  (setf (deathless-session-cwd (deathless-store-get shell)) cwd))
+
+(defun deathless-test--render-buffer (fn)
+  "Render the dashboard into a scratch buffer and call FN there."
+  (let ((view (generate-new-buffer " *deathless-test*")))
+    (unwind-protect
+        (with-current-buffer view
+          (deathless-mode)
+          (vui-render (vui-component 'deathless-view) view)
+          (vui-flush-sync)
+          (funcall fn))
+      (kill-buffer view))))
+
+(ert-deftest deathless-test-layout-default-order ()
+  ;; Status, then project, then title, in compact and full cards.
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--working shell "/nowhere/myproj")
+    (dolist (compact '(t nil))
+      (let ((deathless-compact compact))
+        (should (string-match-p "\\`  . WORKING +myproj  Refactor auth middleware "
+                                (deathless-test--render-text)))))))
+
+(ert-deftest deathless-test-layout-custom-order ()
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--working shell "/nowhere/myproj")
+    (let ((deathless-compact t)
+          (deathless-card-compact-format '(:left (title status) :right (project agent))))
+      (should (string-match-p "\\` Refactor auth middleware   . WORKING +myproj  Claude\\'"
+                              (string-trim-right (deathless-test--render-text)))))))
+
+(ert-deftest deathless-test-layout-custom-part ()
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--working shell "/nowhere/myproj")
+    (let* ((branch "main")
+           (deathless-compact t)
+           (deathless-card-compact-format '(:left (status branch title) :right (clock)))
+           (deathless-card-parts
+            (cons (cons 'branch (lambda (_session status)
+                                  (when (eq status 'working) branch)))
+                  deathless-card-parts)))
+      (should (string-match-p "WORKING +main  Refactor auth middleware"
+                              (deathless-test--render-text)))
+      ;; nil leaves the part out.
+      (setq branch nil)
+      (should (string-match-p "WORKING +Refactor auth middleware"
+                              (deathless-test--render-text)))
+      ;; A built-in part can be drawn differently.
+      (let ((deathless-card-parts (cons '(title . (lambda (_s _st) "Custom title"))
+                                        deathless-card-parts)))
+        (should (string-match-p "WORKING +Custom title"
+                                (deathless-test--render-text)))))))
+
+(ert-deftest deathless-test-layout-fits-width ()
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--working shell (concat "/nowhere/" (make-string 40 ?p)))
+    (setf (deathless-session-title (deathless-store-get shell)) (make-string 200 ?t))
+    (dolist (compact '(t nil))
+      (let* ((deathless-compact compact)
+             (line (car (split-string (deathless-test--render-text) "\n"))))
+        ;; The card is indented by one column.
+        (should (= (string-width line) (1+ (deathless-test--width))))
+        (should (string-match-p (format " %s… " (make-string 23 ?p)) line))
+        (should (string-match-p "t… " line))
+        (should (string-match-p "[0-9]s\\'" line))))))
+
+(defun deathless-test--width ()
+  "Return the width cards are laid out to in a buffer with no window."
+  (with-temp-buffer (deathless--width)))
+
+(ert-deftest deathless-test-layout-aligns-titles ()
+  ;; Titles line up when projects differ in length.
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--working shell "/nowhere/a")
+    (let ((other (generate-new-buffer " *fake-shell-2*")))
+      (unwind-protect
+          (progn
+            (with-current-buffer other
+              (setq agent-shell--state (deathless-test--state))
+              (make-pipe-process :name "fake-shell-2" :buffer other :noquery t))
+            (puthash other (deathless-store--sync
+                            (deathless-session--create :buffer other :created (cons 0 1)))
+                     deathless-store--sessions)
+            (deathless-test--working other "/nowhere/longer-project")
+            (let* ((deathless-compact t)
+                   (lines (split-string (deathless-test--render-text) "\n" t)))
+              (should (= (length lines) 2))
+              (should (apply #'= (mapcar (lambda (line)
+                                           (string-match "Refactor" line))
+                                         lines)))))
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer other))))))
+
+(ert-deftest deathless-test-layout-card-at-point ()
+  ;; Whatever comes first carries the card's buffer.
+  (deathless-test--with-shell (shell (deathless-test--state))
+    (deathless-test--working shell "/nowhere/myproj")
+    (dolist (format '((:left (status project title activity) :right (clock))
+                      (:left (title status) :right (clock))
+                      (:left () :right (clock))))
+      (let ((deathless-compact t)
+            (deathless-card-compact-format format))
+        (deathless-test--render-buffer
+         (lambda ()
+           (should (eq (get-text-property 3 'deathless-buffer) shell))
+           (goto-char (point-max))
+           (skip-chars-backward " \n")
+           (should (eq (deathless--buffer-at-point) shell))
+           (goto-char (point-min))
+           (deathless-next)
+           (should (eq (deathless--buffer-at-point) shell))))))))
+
+(ert-deftest deathless-test-project-name-worktree ()
+  (let ((deathless--project-names (make-hash-table :test #'equal)))
+    (should (equal (deathless--project-name "/x/rat-kingdom/worktrees/myrepo/S-1/sub")
+                   "myrepo"))
+    (let ((rat-kingdom-directory "/srv/rk/"))
+      (should (equal (deathless--project-name "/srv/rk/worktrees/other/S-2") "other")))))
+
+(ert-deftest deathless-test-project-name-git ()
+  (skip-unless (executable-find "git"))
+  (let* ((deathless--project-names (make-hash-table :test #'equal))
+         (top (make-temp-file "deathless-git-" t))
+         (sub (expand-file-name "a/b" top))
+         (calls 0)
+         (toplevel (symbol-function 'deathless--git-toplevel)))
+    (unwind-protect
+        (progn
+          (make-directory sub t)
+          (let ((default-directory top))
+            (should (eql 0 (call-process "git" nil nil nil "init" "-q"))))
+          (cl-letf (((symbol-function 'deathless--git-toplevel)
+                     (lambda (dir) (cl-incf calls) (funcall toplevel dir))))
+            (should (equal (deathless--project-name sub) (file-name-nondirectory top)))
+            (should (equal (deathless--project-name sub) (file-name-nondirectory top)))
+            ;; Git ran once; the second answer came from the memo.
+            (should (= calls 1))))
+      (delete-directory top t))))
+
+(ert-deftest deathless-test-project-name-plain ()
+  (let ((deathless--project-names (make-hash-table :test #'equal)))
+    (should (equal (deathless--project-name "/nowhere/plain/") "plain"))
+    (should (equal (deathless-project-name "/nowhere/plain") "plain"))))
 
 (provide 'deathless-test)
 ;;; deathless-test.el ends here
