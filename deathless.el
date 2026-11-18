@@ -33,6 +33,11 @@
 ;;
 ;; Cards are compact by default: one line each, opening up only for a
 ;; pending permission or a failure.  See `deathless-compact'.
+;;
+;; A card's first line shows the status, the project and the title on
+;; the left, and the clock on the right.  `deathless-card-header-format'
+;; and `deathless-card-compact-format' change what goes where, and
+;; `deathless-card-parts' adds parts of your own.
 
 ;;; Code:
 
