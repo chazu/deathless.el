@@ -371,7 +371,7 @@ directories just left of it line up from card to card."
 (defun deathless--restart (buffer)
   "Restart the agent in BUFFER with a fresh conversation."
   (deathless--check-live buffer)
-  (when (y-or-n-p (format "Restart %s?  Its conversation will be cleared. "
+  (when (y-or-n-p (format "Restart %s and clear its conversation? "
                           (buffer-name buffer)))
     (with-current-buffer buffer (agent-shell-restart))))
 
@@ -482,7 +482,8 @@ FACE defaults to `deathless-button'; HELP is its tooltip."
       :face 'deathless-meta)))
 
 (defun deathless--render-activity (session status width)
-  "Return what SESSION in STATUS is doing or why it stopped, or nil."
+  "Return what SESSION in STATUS is doing or why it stopped, or nil.
+The line is cut to WIDTH columns."
   (let ((tool (deathless-session-last-tool session)))
     (pcase status
       ('working
